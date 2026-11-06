@@ -1,0 +1,13 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+
+@import "tailwindcss";
+
+/* Habilitar el modo oscuro basado en la clase .dark del HTML */
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: "Plus Jakarta Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
