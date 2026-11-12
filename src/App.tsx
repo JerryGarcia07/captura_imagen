@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import IconCreator from "./pages/IconCreator";
+import AnimeCard from "./pages/AnimeCard";
 
 function App() {
   return (
@@ -8,12 +9,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/icon" element={<IconCreator />} />
-        <Route
-          path="/anime"
-          element={
-            <div className="p-8">Vista de Tarjeta Anime (En construcción)</div>
-          }
-        />
+        <Route path="/anime" element={<AnimeCard />} />
       </Routes>
     </BrowserRouter>
   );
