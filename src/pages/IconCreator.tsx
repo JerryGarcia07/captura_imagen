@@ -1,16 +1,11 @@
 import { useState, useRef, useEffect, type ChangeEvent } from "react";
 import Header from "../components/layout/Header";
+import Footer from "../components/layout/Footer";
 import IconForm from "../components/forms/IconForm";
 import IconPreview from "../components/preview/IconPreview";
 import { downloadImage } from "../utils/export";
 import { shareImageNative } from "../utils/share";
-
-interface TMDBResult {
-  poster_path?: string | null;
-  title?: string;
-  name?: string;
-  original_name?: string;
-}
+import { searchTMDB, getTMDBPosterUrl } from "../services/tmdb";
 
 export default function IconCreator() {
   // Estados centralizados
@@ -64,13 +59,8 @@ export default function IconCreator() {
     }
 
     try {
-      const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(searchQuery)}&language=es-ES`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`TMDB respondió con estado ${response.status}`);
-      }
-      const data: { results?: TMDBResult[] } = await response.json();
-      const validResult = data.results?.find((r) => r.poster_path);
+      const results = await searchTMDB(searchQuery, API_KEY);
+      const validResult = results.find((r) => r.poster_path);
 
       if (validResult) {
         setName(
@@ -79,7 +69,7 @@ export default function IconCreator() {
             validResult.original_name ||
             "",
         );
-        setImage(`https://image.tmdb.org/t/p/w500${validResult.poster_path}`);
+        setImage(getTMDBPosterUrl(validResult.poster_path!));
         setError("");
       } else {
         setShowModal(true);
@@ -187,9 +177,7 @@ export default function IconCreator() {
         </div>
       )}
 
-      <footer className="text-gray-500 dark:text-gray-400 text-sm py-6 text-center">
-        PandaAsia@ copyright 2024
-      </footer>
+      <Footer />
     </div>
   );
 }

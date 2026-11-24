@@ -1,4 +1,5 @@
 import Header from "../components/layout/Header";
+import Footer from "../components/layout/Footer";
 import OptionCard from "../components/layout/OptionCard";
 
 export default function Home() {
@@ -25,9 +26,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="text-gray-500 dark:text-gray-400 text-sm py-6 text-center">
-        PandaAsia@ copyright 2024
-      </footer>
+      <Footer />
     </div>
   );
 }

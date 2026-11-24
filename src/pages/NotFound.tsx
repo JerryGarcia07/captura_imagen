@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Home, FileQuestion } from "lucide-react";
 import Header from "../components/layout/Header";
+import Footer from "../components/layout/Footer";
 
 export default function NotFound() {
   return (
@@ -34,9 +35,7 @@ export default function NotFound() {
         </div>
       </main>
 
-      <footer className="text-gray-500 dark:text-gray-400 text-sm py-6 text-center">
-        PandaAsia@ copyright 2024
-      </footer>
+      <Footer />
     </div>
   );
 }
