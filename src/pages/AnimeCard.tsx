@@ -1,4 +1,4 @@
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, useEffect, type ChangeEvent } from "react";
 import Header from "../components/layout/Header";
 // IMPORTANTE: Hemos añadido Loader2 a las importaciones
 import {
@@ -10,6 +10,31 @@ import {
 } from "lucide-react";
 import { downloadImage } from "../utils/export";
 import { shareImageNative } from "../utils/share";
+
+interface AniListMedia {
+  title?: { romaji?: string | null; english?: string | null };
+  episodes?: number | null;
+  seasonYear?: number | null;
+  startDate?: { year?: number | null } | null;
+  format?: string | null;
+  studios?: { nodes?: Array<{ name: string }> } | null;
+  genres?: string[] | null;
+  tags?: Array<{ name: string }> | null;
+  averageScore?: number | null;
+  coverImage?: { extraLarge?: string | null } | null;
+}
+
+interface TMDBAnimeResult {
+  poster_path?: string | null;
+  media_type?: string;
+  title?: string;
+  name?: string;
+  original_name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  vote_average?: number;
+  overview?: string;
+}
 
 const genreTranslations: Record<string, string> = {
   Action: "Acción",
@@ -55,6 +80,14 @@ export default function AnimeCard() {
 
   const previewRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    return () => {
+      if (image?.startsWith("blob:")) {
+        URL.revokeObjectURL(image);
+      }
+    };
+  }, [image]);
+
   const handleSearchAnime = async () => {
     if (!searchQuery.trim()) return;
 
@@ -67,112 +100,166 @@ export default function AnimeCard() {
     setIsSearching(true);
     setError("");
 
-    let jikanAnime = null;
-    let foundInJikan = false;
+    let anilistData: AniListMedia | null = null;
+    let foundInAnilist = false;
 
-    // 1. INTENTO aislando JIKAN API (Si el navegador lo bloquea, no rompe el código)
+    // 1. INTENTO CON ANILIST (GraphQL) - 100% Estable, sin bloqueos
     try {
-      const jikanUrl = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchQuery)}`;
-      const jikanRes = await fetch(jikanUrl);
+      const query = `
+        query ($search: String) {
+          Media (search: $search, type: ANIME) {
+            title { romaji english }
+            episodes
+            seasonYear
+            startDate { year }
+            format
+            studios(isMain: true) { nodes { name } }
+            genres
+            tags { name }
+            averageScore
+            description
+            coverImage { extraLarge }
+          }
+        }
+      `;
 
-      if (jikanRes.status === 429) {
-        console.warn("Jikan API saturada (Rate Limit)");
-      } else if (jikanRes.ok) {
-        const jikanData = await jikanRes.json();
-        jikanAnime = jikanData.data?.[0];
-        if (jikanAnime) foundInJikan = true;
+      const anilistRes = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          query: query,
+          variables: { search: searchQuery },
+        }),
+      });
+
+      if (!anilistRes.ok) {
+        throw new Error(`AniList respondió con estado ${anilistRes.status}`);
       }
-    } catch (jikanError) {
-      console.warn(
-        "Tu navegador o red bloqueó la conexión a Jikan (MyAnimeList):",
-        jikanError,
-      );
+
+      const anilistJson: { data?: { Media?: AniListMedia | null } } =
+        await anilistRes.json();
+
+      if (anilistJson.data?.Media) {
+        anilistData = anilistJson.data.Media;
+        foundInAnilist = true;
+      }
+    } catch (anilistError) {
+      console.warn("Fallo al conectar con AniList:", anilistError);
     }
 
-    // 2. INTENTO aislando TMDB (Siempre se ejecuta)
+    // 2. INTENTO CON TMDB (Para la Sinopsis en Español y Póster)
     try {
-      let tmdbResult = null;
+      let tmdbResult: TMDBAnimeResult | undefined;
 
       let tmdbUrl = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(searchQuery)}&language=es-ES`;
       let tmdbRes = await fetch(tmdbUrl);
-      let tmdbData = await tmdbRes.json();
+      if (!tmdbRes.ok) {
+        throw new Error(`TMDB respondió con estado ${tmdbRes.status}`);
+      }
+      let tmdbData: { results?: TMDBAnimeResult[] } = await tmdbRes.json();
       tmdbResult = tmdbData.results?.find(
-        (r: any) =>
+        (r) =>
           r.poster_path && (r.media_type === "tv" || r.media_type === "movie"),
       );
 
-      // Si TMDB falla, probar con el nombre en inglés de Jikan
-      if (!tmdbResult && foundInJikan && jikanAnime.title_english) {
-        tmdbUrl = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(jikanAnime.title_english)}&language=es-ES`;
+      // Si TMDB no lo encuentra, buscar usando el título en inglés que nos dio AniList
+      if (!tmdbResult && foundInAnilist && anilistData?.title?.english) {
+        tmdbUrl = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(anilistData.title.english)}&language=es-ES`;
         tmdbRes = await fetch(tmdbUrl);
-        tmdbData = await tmdbRes.json();
-        tmdbResult = tmdbData.results?.find((r: any) => r.poster_path);
+        if (tmdbRes.ok) {
+          tmdbData = await tmdbRes.json();
+          tmdbResult = tmdbData.results?.find((r) => r.poster_path);
+        }
       }
 
-      // 3. CONSOLIDAR LOS DATOS EN LA UI
-      if (foundInJikan) {
-        // --- ÉXITO TOTAL: Usamos la información exacta de Anime (Jikan) ---
-        setName(jikanAnime.title || "");
-        setType(jikanAnime.type || "TV");
+      // 3. CONSOLIDAR DATOS EN LA INTERFAZ
+      if (foundInAnilist && anilistData) {
+        // --- LLENADO EXACTO CON ANILIST ---
+        setName(anilistData.title?.romaji || "");
+
+        // Mapear el formato oficial a los valores del <select>
+        const formatMap: Record<string, string> = {
+          TV: "TV",
+          TV_SHORT: "TV",
+          MOVIE: "Movie",
+          SPECIAL: "Special",
+          OVA: "OVA",
+          ONA: "ONA",
+        };
+        setType((anilistData.format && formatMap[anilistData.format]) || "TV");
+
         setEpisodes(
-          jikanAnime.episodes ? jikanAnime.episodes.toString() : "En emisión",
+          anilistData.episodes ? anilistData.episodes.toString() : "En emisión",
         );
         setYear(
-          jikanAnime.year
-            ? jikanAnime.year.toString()
-            : jikanAnime.aired?.prop?.from?.year?.toString() || "",
+          anilistData.seasonYear?.toString() ||
+            anilistData.startDate?.year?.toString() ||
+            "",
         );
+        const studioNodes = anilistData.studios?.nodes ?? [];
         setStudio(
-          jikanAnime.studios?.length > 0
-            ? jikanAnime.studios[0].name
-            : "Desconocido",
+          studioNodes.length > 0 ? studioNodes[0].name : "Desconocido",
         );
-        if (jikanAnime.score) setScore(jikanAnime.score.toString());
+        if (anilistData.averageScore)
+          setScore((anilistData.averageScore / 10).toString()); // Convierte 85 a 8.5
 
-        // Extraer géneros y demografías (Ej: Shounen, Seinen)
-        const rawTags = [
-          ...(jikanAnime.genres || []),
-          ...(jikanAnime.themes || []),
-          ...(jikanAnime.demographics || []),
-        ].map((tag: any) => tag.name);
+        // Procesar Géneros y Demografías (Ej: Extraer Shounen/Seinen de los tags)
+        const demographics = [
+          "Shounen",
+          "Seinen",
+          "Shoujo",
+          "Josei",
+          "Isekai",
+          "Mecha",
+        ];
+        const mediaTags = (anilistData.tags ?? []).map((t) => t.name);
+        const foundDemographics = mediaTags.filter((t) =>
+          demographics.includes(t),
+        );
 
-        const translatedGenres = rawTags
-          .map((tag: string) => genreTranslations[tag] || tag)
+        // Unimos los géneros base y las demografías japonesas
+        const rawGenres = [...(anilistData.genres ?? []), ...foundDemographics];
+        const translatedGenres = rawGenres
+          .map((g) => genreTranslations[g] || g)
           .join(", ");
         setGenres(translatedGenres);
 
         // Sinopsis y Póster
         if (tmdbResult) {
-          setSynopsis(tmdbResult.overview || jikanAnime.synopsis || "");
+          setSynopsis(
+            tmdbResult.overview || "Sinopsis no disponible en español.",
+          );
           setImage(`https://image.tmdb.org/t/p/w500${tmdbResult.poster_path}`);
         } else {
-          setSynopsis(jikanAnime.synopsis || "");
-          setImage(jikanAnime.images?.webp?.large_image_url || null);
+          setSynopsis("Sinopsis no disponible en español.");
+          setImage(anilistData.coverImage?.extraLarge || null);
         }
       } else if (tmdbResult) {
-        // --- RESCATE TMDB: Jikan fue bloqueado pero TMDB lo salvó ---
+        // --- SOLO TMDB (Plan B muy básico) ---
         setName(
-          tmdbResult.title || tmdbResult.name || tmdbResult.original_name,
+          tmdbResult.title ||
+            tmdbResult.name ||
+            tmdbResult.original_name ||
+            "",
         );
-        setType(tmdbResult.media_type === "movie" ? "Película" : "TV");
+        setType(tmdbResult.media_type === "movie" ? "Movie" : "TV");
         setEpisodes(tmdbResult.media_type === "movie" ? "1" : "--");
-
         const date = tmdbResult.release_date || tmdbResult.first_air_date;
         if (date) setYear(date.substring(0, 4));
-
-        setStudio("--"); // TMDB no sabe el estudio
-        setGenres("--"); // TMDB no tiene géneros japoneses
+        setStudio("--");
+        setGenres("--");
         if (tmdbResult.vote_average)
           setScore(tmdbResult.vote_average.toFixed(1));
-
         setSynopsis(tmdbResult.overview || "");
         setImage(`https://image.tmdb.org/t/p/w500${tmdbResult.poster_path}`);
 
         setError(
-          "⚠️ Se usó información básica de TMDB porque la API de anime fue bloqueada por tu navegador o red.",
+          "⚠️ El anime no se encontró en la base de datos principal, se usó información básica.",
         );
       } else {
-        // Ninguna API lo encontró
         setShowModal(true);
       }
     } catch (error) {
@@ -185,7 +272,13 @@ export default function AnimeCard() {
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setImage(URL.createObjectURL(file));
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("⚠️ El archivo seleccionado debe ser una imagen válida.");
+      return;
+    }
+    setError("");
+    setImage(URL.createObjectURL(file));
   };
 
   const handleClear = () => {
@@ -216,15 +309,21 @@ export default function AnimeCard() {
   const handleDownload = async () => {
     if (!validateFields() || !previewRef.current) return;
     setIsProcessing(true);
-    await downloadImage(previewRef.current, format, name.trim());
-    setIsProcessing(false);
+    try {
+      await downloadImage(previewRef.current, format, name.trim());
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleShare = async () => {
     if (!validateFields() || !previewRef.current) return;
     setIsProcessing(true);
-    await shareImageNative(previewRef.current, name.trim());
-    setIsProcessing(false);
+    try {
+      await shareImageNative(previewRef.current, name.trim());
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -446,7 +545,13 @@ export default function AnimeCard() {
                   <span className="text-white/40">|</span>
                   <span>{year || "Año"}</span>
                   <span className="text-white/40">|</span>
-                  <span>{type === "Movie" ? "Película" : type}</span>
+                  <span>
+                    {type === "Movie"
+                      ? "Película"
+                      : type === "Special"
+                        ? "Especial"
+                        : type}
+                  </span>
                   <span className="text-white/40">|</span>
                   <span>{studio || "Studio"}</span>
                 </div>

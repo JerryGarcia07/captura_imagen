@@ -1,4 +1,4 @@
-import { ChangeEvent } from "react";
+import type { ChangeEvent } from "react";
 import { Search, Download, Share2 } from "lucide-react";
 
 interface IconFormProps {

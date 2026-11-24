@@ -1,9 +1,16 @@
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, useEffect, type ChangeEvent } from "react";
 import Header from "../components/layout/Header";
 import IconForm from "../components/forms/IconForm";
 import IconPreview from "../components/preview/IconPreview";
 import { downloadImage } from "../utils/export";
 import { shareImageNative } from "../utils/share";
+
+interface TMDBResult {
+  poster_path?: string | null;
+  title?: string;
+  name?: string;
+  original_name?: string;
+}
 
 export default function IconCreator() {
   // Estados centralizados
@@ -18,6 +25,15 @@ export default function IconCreator() {
 
   // Referencia para la captura
   const previewRef = useRef<HTMLDivElement>(null);
+
+  // Liberar ObjectURLs previos al cambiar de imagen o desmontar
+  useEffect(() => {
+    return () => {
+      if (image?.startsWith("blob:")) {
+        URL.revokeObjectURL(image);
+      }
+    };
+  }, [image]);
 
   // Lógica de validación
   const validateFields = () => {
@@ -43,21 +59,28 @@ export default function IconCreator() {
     const API_KEY = import.meta.env.VITE_TMDB_API_KEY;
 
     if (!API_KEY) {
-      console.error("Falta la API Key");
+      setError("⚠️ Falta la API Key en el archivo .env.");
       return;
     }
 
     try {
       const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(searchQuery)}&language=es-ES`;
       const response = await fetch(url);
-      const data = await response.json();
-      const validResult = data.results?.find((r: any) => r.poster_path);
+      if (!response.ok) {
+        throw new Error(`TMDB respondió con estado ${response.status}`);
+      }
+      const data: { results?: TMDBResult[] } = await response.json();
+      const validResult = data.results?.find((r) => r.poster_path);
 
       if (validResult) {
         setName(
-          validResult.title || validResult.name || validResult.original_name,
+          validResult.title ||
+            validResult.name ||
+            validResult.original_name ||
+            "",
         );
         setImage(`https://image.tmdb.org/t/p/w500${validResult.poster_path}`);
+        setError("");
       } else {
         setShowModal(true);
       }
@@ -69,7 +92,13 @@ export default function IconCreator() {
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setImage(URL.createObjectURL(file));
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("⚠️ El archivo seleccionado debe ser una imagen válida.");
+      return;
+    }
+    setError("");
+    setImage(URL.createObjectURL(file));
   };
 
   const handleClear = () => {
@@ -84,15 +113,21 @@ export default function IconCreator() {
   const handleDownload = async () => {
     if (!validateFields() || !previewRef.current) return;
     setIsProcessing(true);
-    await downloadImage(previewRef.current, format, name.trim());
-    setIsProcessing(false);
+    try {
+      await downloadImage(previewRef.current, format, name.trim());
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleShare = async () => {
     if (!validateFields() || !previewRef.current) return;
     setIsProcessing(true);
-    await shareImageNative(previewRef.current, name.trim());
-    setIsProcessing(false);
+    try {
+      await shareImageNative(previewRef.current, name.trim());
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (

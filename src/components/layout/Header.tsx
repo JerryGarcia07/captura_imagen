@@ -3,13 +3,20 @@ import { Link } from "react-router-dom";
 import { Camera, Sun, Moon } from "lucide-react";
 
 export default function Header() {
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved === "light") return false;
+    if (saved === "dark") return true;
+    return true;
+  });
 
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
     } else {
       document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
     }
   }, [isDark]);
 
