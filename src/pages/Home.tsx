@@ -6,6 +6,7 @@ export default function Home() {
   const options = [
     { title: "Crear Icon", path: "/icon" },
     { title: "Tarjeta Anime", path: "/anime" },
+    { title: "Carpeta K-pop", path: "/kpop-folder" },
   ];
 
   return (
